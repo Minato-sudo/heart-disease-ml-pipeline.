@@ -1,42 +1,14 @@
-pandas
-numpy
-scikit-learn
-matplotlib
-seaborn
-xgboost
+pandas==3.0.2
+numpy==2.4.4
+matplotlib==3.10.9
+seaborn==0.13.2
+scikit-learn==1.8.0
+xgboost==3.2.0
 imbalanced-learn
-fastapi
-uvicorn
-python-multipart
-# AI Tools (Optional)
-alt-profanity
-pandas-profiling
-detoxify
-# Deployment
-python-dotenv
-
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score, KFold
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.naive_bayes import GaussianNB
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
-import matplotlib.pyplot as plt
-import seaborn as sns
-from xgboost import XGBClassifier
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
-import logging
-import time
-from costs import costs_hungarian, costs_cleveland # Custom cost matrices
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.optimizers import Adam
-from sklearn.metrics import log_loss
+shap==0.51.0
+tensorflow==2.21.0
+streamlit==1.57.0
+scipy==1.17.1
+joblib
+ipykernel
+notebook
