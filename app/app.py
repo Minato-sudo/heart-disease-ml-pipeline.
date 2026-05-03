@@ -68,17 +68,29 @@ st.divider()
 
 # ── Sidebar — patient pre-populated (real test patient) ──────
 st.sidebar.header("🩺 Patient Input Form")
-st.sidebar.caption("Pre-populated with a real test patient. Edit any field and click Predict.")
+st.sidebar.caption("Choose a preset or enter values manually.")
 
-# Real test patient (index 5 from test set)
-def get_test_patient():
-    return {
-        'age': 57.0, 'sex': 1.0, 'trestbps': 140.0, 'chol': 192.0,
-        'fbs': 0.0, 'thalach': 148.0, 'exang': 0.0, 'oldpeak': 0.4,
-        'cp': 1.0, 'restecg': 0.0, 'slope': 2.0, 'ca': 0.0, 'thal': 3.0
+# Preset Test Cases
+presets = {
+    "Real Patient 1 (Low Risk)": {
+        'age': 54, 'sex': 1, 'cp': 2, 'trestbps': 108, 'chol': 267,
+        'fbs': 0, 'restecg': 2, 'thalach': 167, 'exang': 0, 'oldpeak': 0.0,
+        'slope': 1, 'ca': 0, 'thal': 3
+    },
+    "Real Patient 2 (High Risk)": {
+        'age': 67, 'sex': 1, 'cp': 4, 'trestbps': 160, 'chol': 286,
+        'fbs': 0, 'restecg': 2, 'thalach': 108, 'exang': 1, 'oldpeak': 1.5,
+        'slope': 2, 'ca': 3, 'thal': 3
+    },
+    "Borderline Case (Manual)": {
+        'age': 55, 'sex': 1, 'cp': 3, 'trestbps': 130, 'chol': 250,
+        'fbs': 0, 'restecg': 1, 'thalach': 140, 'exang': 0, 'oldpeak': 0.8,
+        'slope': 2, 'ca': 1, 'thal': 6
     }
+}
 
-tp = get_test_patient()
+selected_preset = st.sidebar.selectbox("📋 Select Preset Case", options=list(presets.keys()))
+tp = presets[selected_preset]
 
 with st.sidebar.form("patient_form"):
     st.subheader("Continuous features")
@@ -90,16 +102,28 @@ with st.sidebar.form("patient_form"):
     ca       = st.number_input("Major Vessels (0–3)",  min_value=0,   max_value=3,    value=int(tp['ca']),       step=1)
 
     st.subheader("Binary features")
-    sex   = st.selectbox("Sex",    options=[(1,"Male"), (0,"Female")], format_func=lambda x: x[1])[0]
-    fbs   = st.selectbox("Fasting Blood Sugar > 120 mg/dl", options=[(0,"No"), (1,"Yes")], format_func=lambda x: x[1])[0]
-    exang = st.selectbox("Exercise-induced Angina",          options=[(0,"No"), (1,"Yes")], format_func=lambda x: x[1])[0]
+    # Finding the index for the selectbox based on preset value
+    sex_idx = 0 if tp['sex'] == 1 else 1
+    fbs_idx = 0 if tp['fbs'] == 0 else 1
+    exang_idx = 0 if tp['exang'] == 0 else 1
+    
+    sex   = st.selectbox("Sex",    options=[(1,"Male"), (0,"Female")], index=sex_idx, format_func=lambda x: x[1])[0]
+    fbs   = st.selectbox("Fasting Blood Sugar > 120 mg/dl", options=[(0,"No"), (1,"Yes")], index=fbs_idx, format_func=lambda x: x[1])[0]
+    exang = st.selectbox("Exercise-induced Angina",          options=[(0,"No"), (1,"Yes")], index=exang_idx, format_func=lambda x: x[1])[0]
 
     st.subheader("Categorical features")
-    cp      = st.selectbox("Chest Pain Type",   options=[(1,"Typical Angina"),(2,"Atypical"),(3,"Non-Anginal"),(4,"Asymptomatic")], format_func=lambda x: x[1])[0]
-    restecg = st.selectbox("Resting ECG",       options=[(0,"Normal"),(1,"ST-T Abnormality"),(2,"LV Hypertrophy")],                  format_func=lambda x: x[1])[0]
-    slope   = st.selectbox("ST Slope",          options=[(1,"Upsloping"),(2,"Flat"),(3,"Downsloping")],                              format_func=lambda x: x[1])[0]
-    thal    = st.selectbox("Thalassemia",       options=[(3,"Normal"),(6,"Fixed Defect"),(7,"Reversible Defect")],                   format_func=lambda x: x[1])[0]
+    # Mapping values to indices (assuming order in options)
+    cp_idx = {1:0, 2:1, 3:2, 4:3}.get(tp['cp'], 0)
+    restecg_idx = {0:0, 1:1, 2:2}.get(tp['restecg'], 0)
+    slope_idx = {1:0, 2:1, 3:2}.get(tp['slope'], 0)
+    thal_idx = {3:0, 6:1, 7:2}.get(tp['thal'], 0)
 
+    cp      = st.selectbox("Chest Pain Type",   options=[(1,"Typical Angina"),(2,"Atypical"),(3,"Non-Anginal"),(4,"Asymptomatic")], index=cp_idx, format_func=lambda x: x[1])[0]
+    restecg = st.selectbox("Resting ECG",       options=[(0,"Normal"),(1,"ST-T Abnormality"),(2,"LV Hypertrophy")],                  index=restecg_idx, format_func=lambda x: x[1])[0]
+    slope   = st.selectbox("ST Slope",          options=[(1,"Upsloping"),(2,"Flat"),(3,"Downsloping")],                              index=slope_idx, format_func=lambda x: x[1])[0]
+    thal    = st.selectbox("Thalassemia",       options=[(3,"Normal"),(6,"Fixed Defect"),(7,"Reversible Defect")],                   index=thal_idx, format_func=lambda x: x[1])[0]
+
+    # Updated width param based on warning (using the newer string value)
     submitted = st.form_submit_button("🔮 Predict", use_container_width=True)
 
 # ── Build feature vector from inputs ────────────────────────
