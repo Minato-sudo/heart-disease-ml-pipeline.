@@ -1,0 +1,223 @@
+import streamlit as st
+import numpy as np
+import pandas as pd
+import joblib
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import os, sys
+
+# ── Page config ──────────────────────────────────────────────
+st.set_page_config(
+    page_title="CardioAI — Heart Disease Risk Predictor",
+    page_icon="🫀",
+    layout="wide"
+)
+
+# ── Load model & artefacts ──────────────────────────────────
+@st.cache_resource
+def load_artefacts():
+    base = os.path.dirname(__file__)
+    nb   = os.path.join(base, '..', 'notebooks', 'outputs')
+    model   = joblib.load(os.path.join(nb, 'best_xgb.pkl'))
+    scaler  = joblib.load(os.path.join(nb, 'scaler.pkl'))
+    X_train, X_test, y_train, y_test = joblib.load(os.path.join(nb, 'splits.pkl'))
+    return model, scaler, X_train.columns.tolist(), X_test, y_test
+
+model, scaler, feature_names, X_test, y_test = load_artefacts()
+
+CONT_COLS = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak', 'ca']
+
+# ── Styling ───────────────────────────────────────────────────
+st.markdown("""
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .risk-high {
+    background: linear-gradient(135deg, #ff4b4b22, #ff4b4b44);
+    border-left: 5px solid #ff4b4b;
+    border-radius: 8px; padding: 18px; margin: 10px 0;
+  }
+  .risk-low {
+    background: linear-gradient(135deg, #00c85322, #00c85344);
+    border-left: 5px solid #00c853;
+    border-radius: 8px; padding: 18px; margin: 10px 0;
+  }
+  .metric-card {
+    background: #1e1e2e; border-radius: 10px;
+    padding: 14px 18px; margin: 6px 0; color: white;
+  }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Header ────────────────────────────────────────────────────
+st.title("🫀 CardioAI — Heart Disease Risk Predictor")
+st.markdown("""
+> **DS-3002 Data Mining · Assignment #4 · Part E** — Model: XGBoost (AUC 0.917)
+>
+> Enter a patient's clinical measurements below and click **Predict** to assess cardiac risk.
+""")
+
+st.divider()
+
+# ── Sidebar — patient pre-populated (real test patient) ──────
+st.sidebar.header("🩺 Patient Input Form")
+st.sidebar.caption("Pre-populated with a real test patient. Edit any field and click Predict.")
+
+# Real test patient (index 5 from test set)
+def get_test_patient():
+    """Return a real test patient as a plain dict with original (unscaled) values."""
+    return {
+        'age': 57.0, 'sex': 1.0, 'trestbps': 140.0, 'chol': 192.0,
+        'fbs': 0.0, 'thalach': 148.0, 'exang': 0.0, 'oldpeak': 0.4,
+        'cp': 1.0, 'restecg': 0.0, 'slope': 2.0, 'ca': 0.0, 'thal': 2.0
+    }
+
+tp = get_test_patient()
+
+with st.sidebar.form("patient_form"):
+    st.subheader("Continuous features")
+    age      = st.number_input("Age (20–80)",         min_value=20,   max_value=80,   value=int(tp['age']),      step=1)
+    trestbps = st.number_input("Resting BP (90–200 mmHg)",min_value=90, max_value=200,value=int(tp['trestbps']), step=1)
+    chol     = st.number_input("Cholesterol (100–600 mg/dl)", min_value=100,max_value=600,value=int(tp['chol']),  step=1)
+    thalach  = st.number_input("Max Heart Rate (70–210)", min_value=70, max_value=210, value=int(tp['thalach']),  step=1)
+    oldpeak  = st.number_input("ST Depression (0.0–6.2)", min_value=0.0,max_value=6.2, value=float(tp['oldpeak']),step=0.1, format="%.1f")
+    ca       = st.number_input("Major Vessels (0–3)",  min_value=0,   max_value=3,    value=int(tp['ca']),       step=1)
+
+    st.subheader("Binary features")
+    sex   = st.selectbox("Sex",    options=[(1,"Male"), (0,"Female")], format_func=lambda x: x[1])[0]
+    fbs   = st.selectbox("Fasting Blood Sugar > 120 mg/dl", options=[(0,"No"), (1,"Yes")], format_func=lambda x: x[1])[0]
+    exang = st.selectbox("Exercise-induced Angina",          options=[(0,"No"), (1,"Yes")], format_func=lambda x: x[1])[0]
+
+    st.subheader("Categorical features")
+    cp      = st.selectbox("Chest Pain Type",   options=[(0,"Typical Angina"),(1,"Atypical"),(2,"Non-Anginal"),(3,"Asymptomatic")], format_func=lambda x: x[1])[0]
+    restecg = st.selectbox("Resting ECG",       options=[(0,"Normal"),(1,"ST-T Abnormality"),(2,"LV Hypertrophy")],                  format_func=lambda x: x[1])[0]
+    slope   = st.selectbox("ST Slope",          options=[(0,"Upsloping"),(1,"Flat"),(2,"Downsloping")],                              format_func=lambda x: x[1])[0]
+    thal    = st.selectbox("Thalassemia",       options=[(1,"Normal"),(2,"Fixed Defect"),(3,"Reversible Defect")],                   format_func=lambda x: x[1])[0]
+
+    submitted = st.form_submit_button("🔮 Predict", use_container_width=True)
+
+# ── Build feature vector from inputs ────────────────────────
+def build_feature_vector(age, sex, cp, trestbps, chol, fbs, restecg,
+                          thalach, exang, oldpeak, slope, ca, thal):
+    raw = {'age': age, 'sex': sex, 'trestbps': trestbps, 'chol': chol,
+           'fbs': fbs, 'thalach': thalach, 'exang': exang, 'oldpeak': oldpeak,
+           'ca': ca}
+    df  = pd.DataFrame([raw])
+
+    # One-hot encode categoricals exactly as training
+    for c_val, prefix in [(cp, 'cp'), (restecg, 'restecg'), (slope, 'slope'), (thal, 'thal')]:
+        for possible in ([0,1,2,3] if prefix in ['cp'] else
+                         [0,1,2]   if prefix in ['restecg','slope'] else
+                         [1.0,2.0,3.0,4.0,5.0,6.0,7.0]):
+            col = f"{prefix}_{float(possible)}"
+            df[col] = 1.0 if possible == c_val else 0.0
+
+    # Scale continuous cols
+    df_cont = df[CONT_COLS].values
+    df[CONT_COLS] = scaler.transform(df_cont.reshape(1, -1))
+
+    # Align columns with training
+    for col in feature_names:
+        if col not in df.columns:
+            df[col] = 0.0
+    df = df[feature_names]
+    return df
+
+# ── Main area ────────────────────────────────────────────────
+col_form, col_result = st.columns([1.2, 1.8])
+
+with col_form:
+    st.subheader("📋 Input Summary")
+    summary_df = pd.DataFrame({
+        'Feature': ['Age', 'Sex', 'Chest Pain', 'Resting BP', 'Cholesterol',
+                    'Fasting BS', 'Rest ECG', 'Max HR', 'Exercise Angina',
+                    'ST Depression', 'ST Slope', 'Vessels', 'Thalassemia'],
+        'Value':   [age,
+                    "Male" if sex==1 else "Female",
+                    ["Typical","Atypical","Non-Anginal","Asymptomatic"][cp],
+                    f"{trestbps} mmHg", f"{chol} mg/dl",
+                    "Yes" if fbs else "No",
+                    ["Normal","ST-T Abn.","LV Hypertrophy"][restecg],
+                    f"{thalach} bpm",
+                    "Yes" if exang else "No",
+                    f"{oldpeak}",
+                    ["Upsloping","Flat","Downsloping"][slope],
+                    int(ca),
+                    {1:"Normal",2:"Fixed Defect",3:"Reversible Defect"}[thal]]
+    })
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+with col_result:
+    if submitted:
+        X_input = build_feature_vector(age, sex, cp, trestbps, chol, fbs,
+                                        restecg, thalach, exang, oldpeak,
+                                        slope, ca, thal)
+
+        prob     = model.predict_proba(X_input)[0][1]
+        pred     = int(prob >= 0.5)
+        conf_pct = prob * 100 if pred == 1 else (1 - prob) * 100
+
+        # ── Risk label ──
+        st.subheader("🔬 Prediction Result")
+        if pred == 1:
+            st.markdown(f"""
+            <div class="risk-high">
+            <h2 style="color:#ff4b4b;margin:0">🔴 Heart Disease — PRESENT</h2>
+            <p style="font-size:1.2rem;margin:6px 0">Confidence: <b>{conf_pct:.1f}%</b></p>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="risk-low">
+            <h2 style="color:#00c853;margin:0">🟢 No Heart Disease Detected</h2>
+            <p style="font-size:1.2rem;margin:6px 0">Confidence: <b>{conf_pct:.1f}%</b></p>
+            </div>""", unsafe_allow_html=True)
+
+        # ── Top-3 feature importances ──
+        st.subheader("📊 Top 3 Driving Features")
+        importances = model.feature_importances_
+        top3_idx    = np.argsort(importances)[::-1][:3]
+        top3_names  = [feature_names[i].replace('_', ' ') for i in top3_idx]
+        top3_vals   = importances[top3_idx]
+
+        fig, ax = plt.subplots(figsize=(5, 2.2))
+        colors  = ['#ff4b4b' if pred==1 else '#00c853'] * 3
+        bars    = ax.barh(top3_names[::-1], top3_vals[::-1], color=colors, height=0.5)
+        ax.set_xlabel('Feature Importance')
+        ax.set_title('Top 3 Features', fontsize=11, fontweight='bold')
+        ax.spines[['top','right']].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close()
+
+        # ── Plain-English explanation ──
+        st.subheader("📝 Clinical Explanation")
+        top_feat  = top3_names[0]
+        second_feat = top3_names[1]
+        if pred == 1:
+            st.info(
+                f"⚠️ This patient shows elevated cardiac risk. "
+                f"**{top_feat}** and **{second_feat}** are the strongest indicators "
+                f"flagging this patient. "
+                f"The ST depression value of {oldpeak} and a maximum heart rate of {thalach} bpm "
+                f"are consistent with reduced coronary perfusion during stress. "
+                f"**Recommend immediate cardiology referral and further stress testing.**"
+            )
+        else:
+            st.success(
+                f"✅ This patient shows no strong indicators of heart disease. "
+                f"**{top_feat}** and **{second_feat}** are the dominant model features, "
+                f"and both fall within acceptable clinical ranges. "
+                f"**Routine follow-up is advised; no urgent intervention required.**"
+            )
+    else:
+        st.info("👈 Fill in the patient details on the left and click **Predict** to see the result.")
+        st.markdown("""
+        **How it works:**
+        - Model: XGBoost (AUC-ROC = 0.917, trained on UCI Cleveland dataset)
+        - Features: 13 clinical measurements
+        - Output: Disease present / absent + confidence + top 3 driving features
+        """)
+
+# ── Footer ─────────────────────────────────────────────────
+st.divider()
+st.caption("DS-3002 Data Mining · Assignment #4 · Part E · CardioAI Labs (Fictional) · Spring 2026 FAST-NUCES")
