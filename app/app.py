@@ -19,6 +19,13 @@ st.set_page_config(
 def load_artefacts():
     base = os.path.dirname(__file__)
     nb   = os.path.join(base, '..', 'notebooks', 'outputs')
+    
+    required_files = ['best_xgb.pkl', 'scaler.pkl', 'splits.pkl']
+    for f in required_files:
+        if not os.path.exists(os.path.join(nb, f)):
+            st.error(f"Missing required file: {f}. Please run the notebooks first.")
+            st.stop()
+            
     model   = joblib.load(os.path.join(nb, 'best_xgb.pkl'))
     scaler  = joblib.load(os.path.join(nb, 'scaler.pkl'))
     X_train, X_test, y_train, y_test = joblib.load(os.path.join(nb, 'splits.pkl'))
@@ -114,9 +121,8 @@ def build_feature_vector(age, sex, cp, trestbps, chol, fbs, restecg,
             col = f"{prefix}_{float(possible)}"
             df[col] = 1.0 if possible == c_val else 0.0
 
-    # Scale continuous cols
-    df_cont = df[CONT_COLS].values
-    df[CONT_COLS] = scaler.transform(df_cont.reshape(1, -1))
+    # Scale continuous cols - pass DataFrame to keep feature names and avoid warnings
+    df[CONT_COLS] = scaler.transform(df[CONT_COLS])
 
     # Align columns with training
     for col in feature_names:
@@ -160,7 +166,13 @@ with col_form:
                     int(ca),
                     {3:"Normal", 6:"Fixed Defect", 7:"Reversible Defect"}[thal]]
     })
+    # Edge Case Fix: Cast 'Value' to string to avoid Arrow serialization error with mixed types
+    summary_df['Value'] = summary_df['Value'].astype(str)
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    
+    # Clinical Range Edge Case Warnings
+    if trestbps > 165 or chol > 320 or age > 78:
+        st.warning("⚠️ **Note:** One or more values entered are in the extreme clinical range. Model predictions may be highly sensitive to these inputs.")
 
 with col_result:
     if submitted:
@@ -169,7 +181,15 @@ with col_result:
                                         slope, ca, thal)
 
         prob     = model.predict_proba(X_input)[0][1]
-        pred     = int(prob >= 0.5)
+        
+        # Handling the "Exact Threshold" edge case
+        if abs(prob - 0.5) < 0.001:
+            pred = 1 # Default to higher risk in borderline cases
+            borderline = True
+        else:
+            pred     = int(prob >= 0.5)
+            borderline = False
+            
         conf_pct = prob * 100 if pred == 1 else (1 - prob) * 100
 
         # ── Risk label ──
@@ -177,7 +197,7 @@ with col_result:
         if pred == 1:
             st.markdown(f"""
             <div class="risk-high">
-            <h2 style="color:#ff4b4b;margin:0">🔴 Heart Disease — PRESENT</h2>
+            <h2 style="color:#ff4b4b;margin:0">🔴 Heart Disease — {"BORDERLINE RISK" if borderline else "PRESENT"}</h2>
             <p style="font-size:1.2rem;margin:6px 0">Confidence: <b>{conf_pct:.1f}%</b></p>
             </div>""", unsafe_allow_html=True)
         else:
