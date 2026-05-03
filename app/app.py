@@ -65,11 +65,10 @@ st.sidebar.caption("Pre-populated with a real test patient. Edit any field and c
 
 # Real test patient (index 5 from test set)
 def get_test_patient():
-    """Return a real test patient as a plain dict with original (unscaled) values."""
     return {
         'age': 57.0, 'sex': 1.0, 'trestbps': 140.0, 'chol': 192.0,
         'fbs': 0.0, 'thalach': 148.0, 'exang': 0.0, 'oldpeak': 0.4,
-        'cp': 1.0, 'restecg': 0.0, 'slope': 2.0, 'ca': 0.0, 'thal': 2.0
+        'cp': 1.0, 'restecg': 0.0, 'slope': 2.0, 'ca': 0.0, 'thal': 3.0
     }
 
 tp = get_test_patient()
@@ -89,10 +88,10 @@ with st.sidebar.form("patient_form"):
     exang = st.selectbox("Exercise-induced Angina",          options=[(0,"No"), (1,"Yes")], format_func=lambda x: x[1])[0]
 
     st.subheader("Categorical features")
-    cp      = st.selectbox("Chest Pain Type",   options=[(0,"Typical Angina"),(1,"Atypical"),(2,"Non-Anginal"),(3,"Asymptomatic")], format_func=lambda x: x[1])[0]
+    cp      = st.selectbox("Chest Pain Type",   options=[(1,"Typical Angina"),(2,"Atypical"),(3,"Non-Anginal"),(4,"Asymptomatic")], format_func=lambda x: x[1])[0]
     restecg = st.selectbox("Resting ECG",       options=[(0,"Normal"),(1,"ST-T Abnormality"),(2,"LV Hypertrophy")],                  format_func=lambda x: x[1])[0]
-    slope   = st.selectbox("ST Slope",          options=[(0,"Upsloping"),(1,"Flat"),(2,"Downsloping")],                              format_func=lambda x: x[1])[0]
-    thal    = st.selectbox("Thalassemia",       options=[(1,"Normal"),(2,"Fixed Defect"),(3,"Reversible Defect")],                   format_func=lambda x: x[1])[0]
+    slope   = st.selectbox("ST Slope",          options=[(1,"Upsloping"),(2,"Flat"),(3,"Downsloping")],                              format_func=lambda x: x[1])[0]
+    thal    = st.selectbox("Thalassemia",       options=[(3,"Normal"),(6,"Fixed Defect"),(7,"Reversible Defect")],                   format_func=lambda x: x[1])[0]
 
     submitted = st.form_submit_button("🔮 Predict", use_container_width=True)
 
@@ -106,9 +105,12 @@ def build_feature_vector(age, sex, cp, trestbps, chol, fbs, restecg,
 
     # One-hot encode categoricals exactly as training
     for c_val, prefix in [(cp, 'cp'), (restecg, 'restecg'), (slope, 'slope'), (thal, 'thal')]:
-        for possible in ([0,1,2,3] if prefix in ['cp'] else
-                         [0,1,2]   if prefix in ['restecg','slope'] else
-                         [1.0,2.0,3.0,4.0,5.0,6.0,7.0]):
+        if prefix == 'cp': possibilities = [1,2,3,4]
+        elif prefix == 'restecg': possibilities = [0,1,2]
+        elif prefix == 'slope': possibilities = [1,2,3]
+        elif prefix == 'thal': possibilities = [3,6,7]
+        
+        for possible in possibilities:
             col = f"{prefix}_{float(possible)}"
             df[col] = 1.0 if possible == c_val else 0.0
 
@@ -123,6 +125,19 @@ def build_feature_vector(age, sex, cp, trestbps, chol, fbs, restecg,
     df = df[feature_names]
     return df
 
+# ── Feature name mapping for UI ────────────────────────────
+def get_human_name(feat):
+    mapping = {
+        'age': 'Age', 'sex': 'Sex', 'trestbps': 'Resting BP', 'chol': 'Cholesterol',
+        'fbs': 'Fasting BS', 'thalach': 'Max Heart Rate', 'exang': 'Exercise Angina',
+        'oldpeak': 'ST Depression', 'ca': 'Major Vessels',
+        'cp_1.0': 'CP: Typical', 'cp_2.0': 'CP: Atypical', 'cp_3.0': 'CP: Non-Anginal', 'cp_4.0': 'CP: Asymptomatic',
+        'restecg_0.0': 'ECG: Normal', 'restecg_1.0': 'ECG: ST-T Abn', 'restecg_2.0': 'ECG: LV Hypertrophy',
+        'slope_1.0': 'Slope: Upsloping', 'slope_2.0': 'Slope: Flat', 'slope_3.0': 'Slope: Downsloping',
+        'thal_3.0': 'Thal: Normal', 'thal_6.0': 'Thal: Fixed Defect', 'thal_7.0': 'Thal: Reversible'
+    }
+    return mapping.get(feat, feat)
+
 # ── Main area ────────────────────────────────────────────────
 col_form, col_result = st.columns([1.2, 1.8])
 
@@ -134,16 +149,16 @@ with col_form:
                     'ST Depression', 'ST Slope', 'Vessels', 'Thalassemia'],
         'Value':   [age,
                     "Male" if sex==1 else "Female",
-                    ["Typical","Atypical","Non-Anginal","Asymptomatic"][cp],
+                    {1:"Typical", 2:"Atypical", 3:"Non-Anginal", 4:"Asymptomatic"}[cp],
                     f"{trestbps} mmHg", f"{chol} mg/dl",
                     "Yes" if fbs else "No",
                     ["Normal","ST-T Abn.","LV Hypertrophy"][restecg],
                     f"{thalach} bpm",
                     "Yes" if exang else "No",
                     f"{oldpeak}",
-                    ["Upsloping","Flat","Downsloping"][slope],
+                    {1:"Upsloping", 2:"Flat", 3:"Downsloping"}[slope],
                     int(ca),
-                    {1:"Normal",2:"Fixed Defect",3:"Reversible Defect"}[thal]]
+                    {3:"Normal", 6:"Fixed Defect", 7:"Reversible Defect"}[thal]]
     })
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
@@ -176,7 +191,7 @@ with col_result:
         st.subheader("📊 Top 3 Driving Features")
         importances = model.feature_importances_
         top3_idx    = np.argsort(importances)[::-1][:3]
-        top3_names  = [feature_names[i].replace('_', ' ') for i in top3_idx]
+        top3_names  = [get_human_name(feature_names[i]) for i in top3_idx]
         top3_vals   = importances[top3_idx]
 
         fig, ax = plt.subplots(figsize=(5, 2.2))
