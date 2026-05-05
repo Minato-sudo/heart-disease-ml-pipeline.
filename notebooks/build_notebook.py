@@ -654,6 +654,133 @@ print("In a clinical setting, recall for the disease class (minimizing false neg
 print("We should choose the model that maintains a high AUC while achieving the highest recall for the positive class.")
 """, "B3 — Comparison")
 
+# ── Part D header ──
+md_cell("---\n## Part D — CNN on MNIST Digit Images\n*CardioAI scenario: automating handwritten intake form reading.*")
+
+code_cell("""
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, Input
+
+(X_train_full, y_train_full), (X_test_full, y_test_full) = mnist.load_data()
+
+# Subset: 12,000 train, 2,000 test
+X_train_d = X_train_full[:12000].astype('float32') / 255.0
+y_train_d = y_train_full[:12000]
+X_test_d  = X_test_full[:2000].astype('float32') / 255.0
+y_test_d  = y_test_full[:2000]
+
+X_train_cnn = X_train_d.reshape(-1, 28, 28, 1)
+X_test_cnn  = X_test_d.reshape(-1, 28, 28, 1)
+y_train_cat = to_categorical(y_train_d, 10)
+y_test_cat  = to_categorical(y_test_d, 10)
+
+print(f"MNIST Subset — Train: {X_train_cnn.shape} | Test: {X_test_cnn.shape}")
+""", "D — Setup")
+
+# ── D1 Baseline ──
+md_cell("### D1 — Data Preparation & Baseline")
+code_cell("""
+fig, axes = plt.subplots(2, 5, figsize=(10, 4))
+for digit in range(10):
+    idx = np.where(y_train_d == digit)[0][0]
+    ax = axes[digit // 5][digit % 5]
+    ax.imshow(X_train_d[idx], cmap='gray')
+    ax.set_title(f'Digit: {digit}')
+    ax.axis('off')
+plt.tight_layout(); plt.savefig('outputs/d1_samples.png', dpi=150); plt.show()
+
+mlp_baseline = Sequential([
+    Flatten(input_shape=(28, 28, 1)),
+    Dense(64, activation='relu'),
+    Dense(10, activation='softmax')
+])
+mlp_baseline.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+mlp_baseline.fit(X_train_cnn, y_train_cat, epochs=5, verbose=0)
+_, baseline_acc = mlp_baseline.evaluate(X_test_cnn, y_test_cat, verbose=0)
+print(f"D1 — MLP Baseline Accuracy: {baseline_acc:.4f}")
+""", "D1 — Samples & Baseline")
+
+# ── D2 CNN ──
+md_cell("### D2 — Lightweight CNN")
+code_cell("""
+datagen = ImageDataGenerator(rotation_range=10, zoom_range=0.1, width_shift_range=0.1, height_shift_range=0.1)
+datagen.fit(X_train_cnn)
+
+cnn = Sequential([
+    Conv2D(16, kernel_size=(3, 3), activation='relu', padding='same', input_shape=(28, 28, 1)),
+    MaxPooling2D((2, 2)),
+    Conv2D(32, kernel_size=(3, 3), activation='relu', padding='same'),
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dense(64, activation='relu'),
+    Dropout(0.3),
+    Dense(10, activation='softmax')
+])
+cnn.compile(optimizer=Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+
+history_cnn = cnn.fit(datagen.flow(X_train_cnn, y_train_cat, batch_size=64), 
+                      epochs=15, validation_data=(X_test_cnn, y_test_cat), verbose=0)
+
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 1)
+plt.plot(history_cnn.history['accuracy'], label='Train Acc')
+plt.plot(history_cnn.history['val_accuracy'], label='Val Acc')
+plt.axhline(baseline_acc, color='red', linestyle='--', label='MLP Baseline')
+plt.title('D2 — CNN Accuracy'); plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(history_cnn.history['loss'], label='Train Loss')
+plt.plot(history_cnn.history['val_loss'], label='Val Loss')
+plt.title('D2 — CNN Loss'); plt.legend()
+plt.tight_layout(); plt.savefig('outputs/d2_cnn_history.png', dpi=150); plt.show()
+
+y_pred_cnn = np.argmax(cnn.predict(X_test_cnn, verbose=0), axis=1)
+print(f"CNN Test Accuracy: {accuracy_score(y_test_d, y_pred_cnn):.4f}")
+print(f"CNN Macro F1:      {f1_score(y_test_d, y_pred_cnn, average='macro'):.4f}")
+
+sns.heatmap(confusion_matrix(y_test_d, y_pred_cnn), annot=True, fmt='d', cmap='Blues')
+plt.title('D2 — CNN Confusion Matrix'); plt.savefig('outputs/d2_cnn_confusion.png', dpi=150); plt.show()
+
+surpass_epoch = next((i+1 for i, v in enumerate(history_cnn.history['val_accuracy']) if v >= baseline_acc), None)
+print(f"CNN surpasses MLP baseline at epoch: {surpass_epoch}")
+""", "D2 — CNN Training")
+
+# ── D3 Visualization ──
+md_cell("### D3 — Visualising What the CNN Learned")
+code_cell("""
+filters = cnn.layers[0].get_weights()[0]
+fig, axes = plt.subplots(4, 4, figsize=(6, 6))
+for i in range(16):
+    ax = axes[i // 4][i % 4]
+    f = filters[:, :, 0, i]
+    ax.imshow(f, cmap='viridis')
+    ax.axis('off')
+plt.suptitle('D3 — 16 First Layer Filters'); plt.savefig('outputs/d3_filters.png', dpi=150); plt.show()
+
+inp = tf.keras.Input(shape=(28, 28, 1))
+feat_model = Model(inputs=inp, outputs=cnn.layers[0](inp))
+
+fig, axes = plt.subplots(10, 8, figsize=(12, 15))
+for digit in range(10):
+    idx = np.where(y_test_d == digit)[0][0]
+    fmaps = feat_model.predict(X_test_cnn[idx:idx+1], verbose=0)
+    for ch in range(8):
+        ax = axes[digit][ch]
+        ax.imshow(fmaps[0, :, :, ch], cmap='viridis')
+        ax.axis('off')
+plt.suptitle('D3 — Feature Maps (8 channels, one row per digit)'); plt.savefig('outputs/d3_feature_maps.png', dpi=150); plt.show()
+cnn.save('outputs/cnn_mnist.h5')
+""", "D3 — Visualisation")
+
+md_cell("""#### Discussion (D3)
+These visualisations show that the CNN filters detect low-level features like edges and curves. 
+Unlike fully connected networks that look at individual pixels, CNNs maintain spatial structure, 
+allowing them to 'see' shapes. This builds trust because we can verify the model is looking at 
+the digit's strokes rather than background noise.""")
+
 # ── Write notebook ──
 nb = {
     "nbformat": 4,
@@ -669,4 +796,5 @@ out_path = 'assignment4.ipynb'
 with open(out_path, 'w') as f:
     json.dump(nb, f, indent=1)
 print(f"Notebook written: {out_path}")
+
 
